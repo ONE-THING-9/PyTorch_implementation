@@ -11,6 +11,8 @@ from operator import itemgetter
 from itertools import zip_longest
 import fastcore.all as fc
 from torch.utils.data import default_collate
+import torchvision.transforms.functional as TF
+
 from typing import Mapping
 from operator import attrgetter
 from functools import partial
@@ -18,7 +20,7 @@ import torch
 from torch import optim
 from torch import tensor
 from torch import nn
-from torch.optim import init
+from torch.nn import init
 import random
 from copy import copy
 from fastprogress import progress_bar,master_bar
@@ -38,26 +40,6 @@ class Dataset():
     def __len__(self): return len(self.x)
     def __getitem__(self, i): return self.x[i],self.y[i]
 
-def fit(epochs, model, loss_func, opt, train_dl, valid_dl):
-    for epoch in range(epochs):
-        model.train()
-        for xb,yb in train_dl:
-            loss = loss_func(model(xb), yb)
-            loss.backward()
-            opt.step()
-            opt.zero_grad()
-
-        model.eval()
-        with torch.no_grad():
-            tot_loss,tot_acc,count = 0.,0.,0
-            for xb,yb in valid_dl:
-                pred = model(xb)
-                n = len(xb)
-                count += n
-                tot_loss += loss_func(pred,yb).item()*n
-                tot_acc  += accuracy (pred,yb).item()*n
-        print(epoch, tot_loss/count, tot_acc/count)
-    return tot_loss/count, tot_acc/count
 
 def get_dls(train_ds, valid_ds, bs, **kwargs):
     return (DataLoader(train_ds, batch_size=bs, shuffle=True, **kwargs),
@@ -146,11 +128,6 @@ class DataLoaders:
         f = collate_dict(dd['train'])
         return cls(*get_dls(*dd.values(), bs=batch_size, collate_fn=f, **kwargs))
     
-
-def conv(ni, nf, ks=3, stride=2, act=True):
-    res = nn.Conv2d(ni, nf, stride=stride, kernel_size=ks, padding=ks//2)
-    if act: res = nn.Sequential(res, nn.ReLU())
-    return res
 
 
 def to_device(x, device):

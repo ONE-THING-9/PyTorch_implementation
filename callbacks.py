@@ -24,31 +24,30 @@ class SingleBatchCB(Callback):
 
   
 class MetricsCB(Callback):
-  def __init__(self, *ms ,**metrics):
-    for o in ms:
-      metrics[type(o).__name__] = o
-    self.metrics = metrics
-    self.all_metrics = copy(metrics)
-    self.all_metrics['loss'] = self.loss = Mean()
+    def __init__(self, *ms, **metrics):
+        for o in ms: metrics[type(o).__name__] = o
+        self.metrics = metrics
+        self.all_metrics = copy(metrics)
+        self.all_metrics['loss'] = self.loss = Mean()
 
-  def _log(self,d):
-    print(d)
-  
-  def before_fit(self,learn):
-    learn.metrics= self
-  def before_epoch(self,learn):
-    [o.reset() for o in self.all_metrics.values()]
-  
-  def after_epoch(self,learn):
-    log = {k:f'{v.compute():.3f}' for k,v in self.all_metrics.items()}
-    log['epoch'] = learn.epoch
-    log['train'] = 'train' if learn.model.training else "eval"
-    self._log(log)
-  def after_batch(self,learn):
-    x,y,*_ = to_cpu(learn.batch)
-    for m in self.metrics.values():
-      m.update(to_cpu(learn.preds) ,y)
-      self.loss.update(to_cpu(learn.loss) , weight = len(x))
+    def _log(self, d): print(d)
+    def before_fit(self, learn): learn.metrics = self
+    def before_epoch(self, learn): [o.reset() for o in self.all_metrics.values()]
+
+    def after_epoch(self, learn):
+        log = {k:f'{v.compute():.3f}' for k,v in self.all_metrics.items()}
+        log['epoch'] = learn.epoch
+        log['train'] = 'train' if learn.model.training else 'eval'
+        self._log(log)
+
+    def after_batch(self, learn):
+        x,y,*_ = to_cpu(learn.batch)
+        for m in self.metrics.values(): m.update(to_cpu(learn.preds), y)
+        self.loss.update(to_cpu(learn.loss), weight=len(x))
+     
+
+
+def_device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class DeviceCB(Callback):
     def __init__(self, device=def_device): fc.store_attr()
@@ -208,3 +207,37 @@ class RecorderCB(Callback):
       plt.legend()
       plt.show()
 
+import wandb
+class WandbCB(MetricsCB):
+  order=100
+  def __init__(self,config , *ms , project = "ddpm_cifar10" , **metrics):
+    fc.store_attr()
+    super().__init__(*ms, **metrics)
+  
+  def before_fit(self ,learn):
+    wandb.init(project = self.project , config = self.config)
+  
+  def after_fit(self,learn):
+    wandb.finish()
+  
+  def _log(self,d , train):
+    if train == 'train':
+      wandb.log({"train_"+m:float(d[m]) for m in self.all_metrics})
+    else:
+      wandb.log({"val_"+m:float(d[m]) for m in self.all_metrics})
+      wandb.log({"samples":self.sample_figure(learn)})
+
+    print(d)
+
+  def sample_figure(self, learn):
+        with torch.no_grad():
+            samples = sample(learn.model, (16, 3, 32, 32))
+        s = (samples[-1] + 0.5).clamp(0,1)
+        plt.clf()
+        fig, axs = get_grid(16)
+        for im,ax in zip(s[:16], axs.flat): show_image(im, ax=ax)
+        return fig
+
+  def after_batch(self, learn):
+        super().after_batch(learn) 
+        wandb.log({'loss':learn.loss})

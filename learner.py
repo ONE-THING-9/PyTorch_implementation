@@ -1,5 +1,5 @@
 from library import *
-
+from callbacks import *
 
 def run_cbs(cbs,method_name , learn=None):
   for cb in sorted(cbs , key = attrgetter('order')):
@@ -20,7 +20,7 @@ class with_cbs:
         return _f
     
 class Learner():
-    def __init__(self, model, dls=(0,), loss_func=F.mse_loss, lr=0.1, cbs=None, opt_func=optim.SGD):
+    def __init__(self, model, dls=(0,), loss_func=F.mse_loss, lr=0.1, cbs=None, opt_func=torch.optim.SGD):
         cbs = fc.L(cbs)
         fc.store_attr()
 
@@ -80,4 +80,17 @@ class TrainLearner(Learner):
     def backward(self): self.loss.backward()
     def step(self): self.opt.step()
     def zero_grad(self): self.opt.zero_grad()
+
+from accelerate import Accelerator
+
+class AccelrateCB(TrainCB):
+  order = DeviceCB.order +1
+  def __init__(self,n_inp =1,mixed_precision='fp16' ):
+    super().__init__(n_inp=n_inp)
+    self.acc = Accelerator(mixed_precision=mixed_precision)
+  def before_fit(self, learn):
+        learn.model,learn.opt,learn.dls.train,learn.dls.valid = self.acc.prepare(
+            learn.model, learn.opt, learn.dls.train, learn.dls.valid)
+
+  def backward(self, learn): self.acc.backward(learn.loss)
 
